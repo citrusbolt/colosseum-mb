@@ -189,21 +189,21 @@ struct PlayerLinkInfo *SetPlayerLinkInfo(u8 *sav2, u8 *sav1, u32 saveStatus)
     {
         u8 *saveData;
 
-        if (!gAgbPmRomParams->unkB8_1)
+        if (!gAgbPmRomParams->blockLinkColoXD)
         {
             structPtr->hasPokedex = CheckIfPokedexIsObtained();
             structPtr->isInPokeCenter = ((GetPlayerMapType() & POKECENTER_SAVEWARP) != 0);
             structPtr->isFRLG = IsFRLG();
             structPtr->isChampion = ((GetPlayerMapType() & CHAMPION_SAVEWARP) != 0);
-            structPtr->language = gAgbPmRomParams->gameLanguage;
+            structPtr->language = gAgbPmRomParams->language;
         }
-        saveData = &sav2[gAgbPmRomParams->sb2PlayerNameOffs];
+        saveData = &sav2[gAgbPmRomParams->playerNameOffset];
         StringCopy(structPtr->playerName, saveData);
 
-        saveData = &sav2[gAgbPmRomParams->sb2PlayerGenderOffs];
+        saveData = &sav2[gAgbPmRomParams->playerGenderOffset];
         structPtr->playerGender = *saveData;
 
-        saveData = &sav2[gAgbPmRomParams->sb2PlayerIdOffs];
+        saveData = &sav2[gAgbPmRomParams->trainerIdOffset];
         for (i = 0; i < 4; i++)
             structPtr->playerTrainerId[i] = saveData[i];
 
@@ -354,7 +354,7 @@ void DetectROM(void)
 
     if (notEnglishRS == TRUE)
     {
-        if (gAgbPmRomParams->gameLanguage == LANGUAGE_ENGLISH)
+        if (gAgbPmRomParams->language == LANGUAGE_ENGLISH)
             gRomDetection_IsEnglishROM = TRUE;
         else
             gRomDetection_IsEnglishROM = FALSE;
@@ -366,7 +366,7 @@ u8 GetPlayerMapType(void)
     u8 ret;
     if (!gRomDetection_IsRubySapphire)
     {
-        ret = *((u8 *)(gSaveBlock2Ptr) + gAgbPmRomParams->sb2SpecialSaveWarpOffs);
+        ret = *((u8 *)(gSaveBlock2Ptr) + gAgbPmRomParams->warpFlagsOffset);
     }
     else
     {
@@ -386,7 +386,7 @@ u8 CheckIfPokedexIsObtained(void)
 {
     bool32 val;
     if (!gRomDetection_IsRubySapphire)
-        val = ((*((u8 *)(gSaveBlock2Ptr) + gAgbPmRomParams->gcnLinkFlagsOffs) & 1));
+        val = ((*((u8 *)(gSaveBlock2Ptr) + gAgbPmRomParams->gcnLinkFlagsOffset) & 1));
     else
         val = CheckFlag(FLAG_SYS_POKEDEX_GET);
 
@@ -398,7 +398,7 @@ u8 CheckIfPokedexIsObtained(void)
 
 bool32 IsFRLG(void)
 {
-    if (gAgbPmRomParams->gameVersion == VERSION_FIRE_RED || gAgbPmRomParams->gameVersion == VERSION_LEAF_GREEN)
+    if (gAgbPmRomParams->version == VERSION_FIRE_RED || gAgbPmRomParams->version == VERSION_LEAF_GREEN)
         return TRUE;
     else
         return FALSE;
@@ -406,8 +406,8 @@ bool32 IsFRLG(void)
 
 bool32 CheckGameClear(void)
 {
-    u8 *flagsPtr = gSaveBlock1Ptr + gAgbPmRomParams->flagsOffs + (gAgbPmRomParams->sysGameClearFlagIdx / 8);
-    return (*flagsPtr & (1 << (gAgbPmRomParams->sysGameClearFlagIdx % 8))) != 0;
+    u8 *flagsPtr = gSaveBlock1Ptr + gAgbPmRomParams->flagsOffset + (gAgbPmRomParams->gameClearFlag / 8);
+    return (*flagsPtr & (1 << (gAgbPmRomParams->gameClearFlag % 8))) != 0;
 }
 
 u16 GetStringSizeHandleExtCtrlCodes(u8 *str)
@@ -598,7 +598,7 @@ static inline void CopyN(s32 n, u8 *dst, const u8 *src)
 
 void sub_0200D1AC(u32 val)
 {
-    u8 *ptr = (u8 *)(gSaveBlock1Ptr) + gAgbPmRomParams->externalEventDataOffs;
+    u8 *ptr = (u8 *)(gSaveBlock1Ptr) + gAgbPmRomParams->externalEventDataOffset;
     // Note: cast is needed here to make the code match. The whole struct is declared as volatile, but unkStruct isn't treated as volatile in this function.
     // It's possible only certain members of gUnknown_02024960 were volatile.
     struct ExternalEventData2 *externalEventData = (struct ExternalEventData2 *) &gUnknown_02024960.externalEventData;
@@ -826,7 +826,7 @@ void sub_0200D624(void)
 {
     bool32 gameClear;
     u32 joyTransVal;
-    u8 *ptr = (u8 *)(gSaveBlock1Ptr) + gAgbPmRomParams->externalEventDataOffs;
+    u8 *ptr = (u8 *)(gSaveBlock1Ptr) + gAgbPmRomParams->externalEventDataOffset;
     struct ExternalEventData2 *externalEventData = (struct ExternalEventData2 *) &gUnknown_02024960.externalEventData;
 
     switch (gUnknown_020251F0.state)
