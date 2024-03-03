@@ -93,16 +93,16 @@ extern volatile struct MonLinkData gMonLinkData;
 
 void sub_02002A9C(s32 a0, u32 a1, u32 a2);
 void BufferString(u32 bufferId, const u8 *src);
-void DrawPartyMonHealthBar(int bgNum, int x, int y, u32 monId);
+void DrawPartyMonHealthBar(u32 bgNum, u32 x, u32 y, u32 monId);
 void FadeIn(void);
 void OverrideScreenFadeState(bool32 faded);
 bool32 IsScreenFadedOut(void);
 void FadeOut(void);
-void DrawTextWindowBorder(u32 a0, u32 a1, s32 a2, s32 a3, u32 a4);
-u8 *NumToPmString3CustomZeroChar(s32 num, u8 *str, u32 zeroChar);
+void DrawTextWindowBorder(u32 x, u32 y, s32 width, s32 height, u32 tileNum);
+u8 *ConvertIntToDecimalString3CustomEncoding(s32 num, u8 *str, u32 zeroChar);
 void RenderText(struct Window *win, const u8 *str);
 void RenderTextAt(struct Window *win, u32 x, u32 y, const u8 *str);
-u8 *NumToPmString3RightAlign(u8 *str, s32 num);
+u8 *ConvertIntToDecimalString3RightAlign(u8 *str, s32 num);
 void ClearVram(void);
 
 #endif // GUARD_ALL_H

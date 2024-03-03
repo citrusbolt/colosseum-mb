@@ -322,7 +322,7 @@ void sub_02004D68(u32 monId)
     RenderText(gUnknown_02021A20.unk14, text);
 
     level = GetMonData(mon, MON_DATA_LEVEL, NULL);
-    NumToPmString3CustomZeroChar(level, text, CHAR_0);
+    ConvertIntToDecimalString3CustomEncoding(level, text, CHAR_0);
     for (i = 0; text[i] == CHAR_0; i++)
         ;
     if (text[i] == EOS)
@@ -357,10 +357,10 @@ void sub_02004D68(u32 monId)
     gBgTilemapBufferTransferScheduled[1] = TRUE;
 
     var = GetMonData(mon, MON_DATA_HP, NULL);
-    NumToPmString3RightAlign(text, var);
+    ConvertIntToDecimalString3RightAlign(text, var);
     text[3] = CHAR_SLASH;
     var = GetMonData(mon, MON_DATA_MAX_HP, NULL);
-    NumToPmString3RightAlign(text + 4, var);
+    ConvertIntToDecimalString3RightAlign(text + 4, var);
     TextWindowSetXY(gUnknown_02021A20.unk14, 80, 32);
     gUnknown_02021A20.unk14->glyphWidth = 6;
     RenderText(gUnknown_02021A20.unk14, text);
@@ -555,9 +555,9 @@ void sub_02005168(s32 id)
     ppCurr = gMonLinkData.pps[id];
     ppBonuses = GetMonData(mon, MON_DATA_PP_BONUSES, NULL);
     ppTotal = CalculatePPWithBonus(move, ppBonuses, id);
-    NumToPmString3RightAlign(text, ppCurr);
+    ConvertIntToDecimalString3RightAlign(text, ppCurr);
     text[3] = CHAR_SLASH;
-    NumToPmString3RightAlign(text + 4, ppTotal);
+    ConvertIntToDecimalString3RightAlign(text + 4, ppTotal);
     text[4] = text[5];
     text[5] = text[6];
     text[6] = text[7];

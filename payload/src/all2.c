@@ -138,7 +138,7 @@ static inline void PrintStat(struct Window *win, s32 x, u32 monId, s32 monData, 
     s32 xStat;
 
     s32 stat = GetMonData(&gPlayerPartyPtr[monId], monData, NULL);
-    NumToPmString3RightAlign(statText, stat);
+    ConvertIntToDecimalString3RightAlign(statText, stat);
     if (stat < 10)
         xStat = 1;
     else if (stat < 100)
@@ -202,10 +202,10 @@ static void sub_020031F8(u32 monId)
         RenderText(gUnknown_02021990.unk24, gText_HP);
     }
     hp = GetMonData(&gPlayerPartyPtr[monId], MON_DATA_HP, NULL);
-    NumToPmString3RightAlign(text, hp);
+    ConvertIntToDecimalString3RightAlign(text, hp);
     text[3] = CHAR_SLASH;
     var = GetMonData(&gPlayerPartyPtr[monId], MON_DATA_MAX_HP, NULL);
-    NumToPmString3RightAlign(text + 4, var);
+    ConvertIntToDecimalString3RightAlign(text + 4, var);
     TextWindowSetXY(gUnknown_02021990.unk24, 45, 64);
     gUnknown_02021990.unk24->glyphWidth = 6;
     FillWindowCharBufferRect(gUnknown_02021990.unk24, 5, 8, 6, 2, 0);
@@ -329,9 +329,9 @@ static void sub_0200378C(u32 monId)
         FillWindowCharBufferRect(gUnknown_02021990.unk24, 13, 1 + (i * 2), 5, 2, 0);
         if (move != MOVE_NONE)
         {
-            NumToPmString3RightAlign(text, ppCurr);
+            ConvertIntToDecimalString3RightAlign(text, ppCurr);
             text[3] = CHAR_SLASH;
-            NumToPmString3RightAlign(text + 4, ppMax);
+            ConvertIntToDecimalString3RightAlign(text + 4, ppMax);
             text[4] = text[5];
             text[5] = text[6];
             text[6] = text[7];
@@ -396,7 +396,7 @@ static void sub_02003A70(u32 monId, u32 moveSlot)
             }
             else
             {
-                NumToPmString3RightAlign(text, moves[move].power);
+                ConvertIntToDecimalString3RightAlign(text, moves[move].power);
                 RenderText(gUnknown_02021990.unk20, text);
             }
 
@@ -408,7 +408,7 @@ static void sub_02003A70(u32 monId, u32 moveSlot)
             }
             else
             {
-                NumToPmString3RightAlign(text, moves[move].accuracy);
+                ConvertIntToDecimalString3RightAlign(text, moves[move].accuracy);
                 RenderText(gUnknown_02021990.unk20, text);
             }
         }
@@ -490,7 +490,7 @@ static void sub_02003D80(u32 monId, bool32 a1)
     TextWindowSetXY(gUnknown_02021990.unk20, 16, 32);
     RenderText(gUnknown_02021990.unk20, text);
     lvl = GetMonData(mon, MON_DATA_LEVEL, NULL);
-    NumToPmString3CustomZeroChar(lvl, text, CHAR_0);
+    ConvertIntToDecimalString3CustomEncoding(lvl, text, CHAR_0);
     for (i = 0; text[i] == CHAR_0; i++)
         ;
     if (text[i] == EOS)

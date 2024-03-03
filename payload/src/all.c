@@ -16,6 +16,12 @@
 #include "strings.h"
 #include "graphics.h"
 
+enum {
+    PARTY_MODE_BATTLE,
+    PARTY_MODE_SELECT,
+    PARTY_MODE_UNKNOWN,
+};
+
 struct Unk02000D74Struct
 {
     u8 x;
@@ -38,7 +44,7 @@ struct UnkSpriteMonIconStruct
     u8 statusPrimary;
     u16 species;
     u16 speciesIcon; // Support for Unown.
-    u16 unk8;
+    u16 tileOffset;
     struct Sprite *monSprite; // 0xC
     u8 filler10;
     u8 filler11;
@@ -49,7 +55,7 @@ struct UnkSpriteMonIconStruct
     struct Window *unk1C;
     u8 unk20;
     u8 unk21;
-    u8 unk22;
+    u8 selectedId;
     struct Window *win; // 0x24
     struct Sprite *unk28;
 };
@@ -61,7 +67,7 @@ struct Unk02021860Struct
     struct Window *unk10C;
     struct Window *unk110;
     struct Sprite *unk114;
-    u8 unk118;
+    u8 mode;
     u8 unk119;
     u8 unk11A;
     u8 selectedMon;
@@ -95,10 +101,10 @@ struct Struct0201F9E
 
 EWRAM_DATA volatile struct MonLinkData gMonLinkData = {0};
 
-static UNUSED u8 gUnknown_02020A38[8];
+static UNUSED u8 sUnused1[8];
 static u8 gScreenIsFadedOut;
 // probably another file
-static u8 sPadding[2];
+static UNUSED u8 sUnused2[2];
 static u16 sSomeWindowBaseBlock;
 
 extern u8 gSaveStatus;
@@ -117,8 +123,8 @@ extern const struct Subsprites gUnknown_0201F910[];
 extern const struct Unk02000D74Struct gUnknown_0201F9D4[];
 extern const struct Unk02000D74Struct gUnknown_0201F9BC[];
 extern const struct Unk201F9B0Struct gUnknown_0201F9B0[];
-extern const u16 gUnknown_0201F6B0[];
-extern const u16 gUnknown_0201F4B0[];
+extern const u16 gWeirdStringModTable1[];
+extern const u16 gWeirdStringModTable2[];
 extern const struct Window gUnknown_0201F8B0;
 extern const struct Window gUnknown_0201F8F0;
 extern const struct Window gUnknown_0201F8D0;
@@ -194,13 +200,14 @@ void RenderText(struct Window *win, const u8 *str)
         case EXT_CTRL_CODE_BEGIN:
             str++;
             currStr = str;
+
             switch (*str)
             {
-            case 0x14:
+            case EXT_CTRL_CODE_MIN_LETTER_SPACING:
                 win->glyphWidth = str[1];
                 currStr = str + 2;
                 break;
-            case 0x15:
+            case EXT_CTRL_CODE_JPN:
                 if (win->glyphSize == 8)
                 {
                     win->glyphGfx = gFont1JapanGfx;
@@ -212,10 +219,11 @@ void RenderText(struct Window *win, const u8 *str)
                     win->glyphWidths = gFont0JapanWidths;
                 }
                 break;
-            case 0xF:
+            case EXT_CTRL_CODE_FILL_WINDOW:
                 ClearWindowCharBuffer(win, 0);
                 break;
             }
+
             str = currStr;
             break;
         default:
@@ -233,7 +241,7 @@ void RenderText(struct Window *win, const u8 *str)
     win->glyphWidths = glyphWidths;
 }
 
-void RenderText_NoPlaceholders(struct Window *win, const u8 *str)
+static void RenderText_NoPlaceholders(struct Window *win, const u8 *str)
 {
     const u8 *currStr;
     const u8 *glyphGfx = win->glyphGfx;
@@ -255,13 +263,14 @@ void RenderText_NoPlaceholders(struct Window *win, const u8 *str)
         case EXT_CTRL_CODE_BEGIN:
             str++;
             currStr = str;
+
             switch (*str)
             {
-            case 0x14:
+            case EXT_CTRL_CODE_MIN_LETTER_SPACING:
                 win->glyphWidth = str[1];
                 currStr = str + 2;
                 break;
-            case 0x15:
+            case EXT_CTRL_CODE_JPN:
                 if (win->glyphSize == 8)
                 {
                     win->glyphGfx = gFont1JapanGfx;
@@ -273,10 +282,11 @@ void RenderText_NoPlaceholders(struct Window *win, const u8 *str)
                     win->glyphWidths = gFont0JapanWidths;
                 }
                 break;
-            case 0xF:
+            case EXT_CTRL_CODE_FILL_WINDOW:
                 ClearWindowCharBuffer(win, 0);
                 break;
             }
+
             str = currStr;
             break;
         default:
@@ -295,9 +305,10 @@ void BufferString(u32 bufferId, const u8 *src)
     StringCopy(gStringBuffers[bufferId], src);
 }
 
-s32 GetStringWidth(struct Window *win, const u8 *src)
+static u32 UNUSED GetStringWidth(struct Window *win, const u8 *src)
 {
     s32 width = 0;
+
     while (*src != EOS)
     {
         width += win->glyphWidths[*src];
@@ -306,18 +317,21 @@ s32 GetStringWidth(struct Window *win, const u8 *src)
     return width;
 }
 
-void DrawPartyMonHealthBar(int bgNum, int x, int y, u32 monId)
+#define HP_BAR_WIDTH 6
+
+void DrawPartyMonHealthBar(u32 bgNum, u32 x, u32 y, u32 monId)
 {
-    s32 r5, r4, x2;
+    s32 fillTiles, scaledFraction;
+    u32 unused;
     s32 hp, maxHp;
     u16 tile;
 
     SetBgTilemapBufferTileAt(bgNum, x, y, 0x300A);
     SetBgTilemapBufferTileAt(bgNum, x + 1, y, 0x300B);
     SetBgTilemapBufferTileAt(bgNum, x + 8, y, 0x300C);
-
     hp = GetMonData(&gPlayerPartyPtr[monId], MON_DATA_HP, NULL);
     maxHp = GetMonData(&gPlayerPartyPtr[monId], MON_DATA_MAX_HP, NULL);
+
     if (hp > maxHp)
         hp = maxHp;
 
@@ -328,23 +342,22 @@ void DrawPartyMonHealthBar(int bgNum, int x, int y, u32 monId)
     else
         tile = 0x4001;
 
-    r4 = Div(hp * 48, maxHp);
-    r5 = 0;
+    scaledFraction = Div(hp * HP_BAR_WIDTH * 8, maxHp);
+    fillTiles = 0;
     x += 2;
-    while (r4 > 8)
+
+    while (scaledFraction > 8)
     {
-        SetBgTilemapBufferTileAt(bgNum, x + r5, y, tile + 8);
-        r5++;
-        r4 -= 8;
+        SetBgTilemapBufferTileAt(bgNum, x + fillTiles, y, tile + 8);
+        fillTiles++;
+        scaledFraction -= 8;
     }
 
-    if (r4 != 0)
-        SetBgTilemapBufferTileAt(bgNum, x + r5++, y, r4 + tile);
+    if (scaledFraction != 0)
+        SetBgTilemapBufferTileAt(bgNum, x + fillTiles++, y, scaledFraction + tile);
 
-    for (; r5 < 6; r5++)
-    {
-        SetBgTilemapBufferTileAt(bgNum, x + r5, y, tile);
-    }
+    for (; fillTiles < HP_BAR_WIDTH; fillTiles++)
+        SetBgTilemapBufferTileAt(bgNum, x + fillTiles, y, tile);
 }
 
 bool32 IsScreenFadedOut(void)
@@ -364,11 +377,13 @@ void FadeIn(void)
     DelayFrames(1);
     REG_BLDY = 0x1F;
     REG_BLDCNT = 0xFF;
+
     for (i = 29; i > 0; i -= 2)
     {
         DelayFrames(1);
         REG_BLDY = i;
     }
+
     REG_BLDCNT = 0;
     gScreenIsFadedOut = FALSE;
 }
@@ -381,49 +396,57 @@ void FadeOut(void)
     DelayFrames(1);
     REG_BLDY = 0;
     REG_BLDCNT = 0xFF;
+
     for (i = 1; i <= 31; i += 2)
     {
         DelayFrames(1);
         REG_BLDY = i;
     }
+
     REG_BLDY = 0x1F;
     ResetSprites();
 }
 
-void DrawTextWindowBorder(u32 a0, u32 a1, s32 a2, s32 a3, u32 a4)
+void DrawTextWindowBorder(u32 x, u32 y, s32 width, s32 height, u32 tileNum)
 {
-    s32 r1, i;
+    s32 currentRow, i;
     u16 *ptr;
 
-    ptr = ((u16 *)(0x3002000) + a1 * 32 + a0);
-    *ptr = a4;
+    ptr = ((u16 *)(0x3002000) + y * 32 + x);
+    *ptr = tileNum;
 
-    for (i = 1; i < a2 - 1; i++)
-        ptr[i] = a4 + 1;
-    ptr[i] = a4 + 2;
+    for (i = 1; i < width - 1; i++)
+        ptr[i] = tileNum + 1;
 
+    ptr[i] = tileNum + 2;
     ptr += 0x20;
-    for (r1 = 1; r1 < a3 - 1; r1++, ptr += 0x20)
+
+    for (currentRow = 1; currentRow < height - 1; currentRow++, ptr += 0x20)
     {
-        *ptr = a4 + 3;
-        for (i = 1; i < a2 - 1; i++)
+        *ptr = tileNum + 3;
+
+        for (i = 1; i < width - 1; i++)
             ;
-        ptr[i] = a4 + 5;
+
+        ptr[i] = tileNum + 5;
     }
 
-    *ptr = a4 + 6;
-    for (i = 1; i < a2 - 1; i++)
-        ptr[i] = a4 + 7;
-    ptr[i] = a4 + 8;
+    *ptr = tileNum + 6;
+
+    for (i = 1; i < width - 1; i++)
+        ptr[i] = tileNum + 7;
+
+    ptr[i] = tileNum + 8;
 }
 
-u8 *NumToPmString3CustomZeroChar(s32 num, u8 *str, u32 zeroChar)
+u8 *ConvertIntToDecimalString3CustomEncoding(s32 num, u8 *str, u32 zeroChar)
 {
     str[0] = Div(num, 100) + zeroChar;
     num = Mod(num, 100);
     str[1] = Div(num, 10) + zeroChar;
     str[2] = Mod(num, 10) + zeroChar;
     str[3] = EOS;
+
     return str;
 }
 
@@ -433,7 +456,7 @@ void ClearVram(void)
     ResetGpuBuffers();
 }
 
-u8 *NumToPmString3RightAlign(u8 *str, s32 num)
+u8 *ConvertIntToDecimalString3RightAlign(u8 *str, s32 num)
 {
     s32 i;
 
@@ -442,8 +465,10 @@ u8 *NumToPmString3RightAlign(u8 *str, s32 num)
     str[1] = Div(num, 10) + (unsigned) CHAR_0;
     str[2] = Mod(num, 10) + (unsigned) CHAR_0;
     str[3] = EOS;
+
     for (i = 0; str[i + 1] != EOS && str[i] == CHAR_0; i++)
         str[i] = CHAR_SPACE;
+
     return str;
 }
 
@@ -467,6 +492,7 @@ struct Window *CreateSomeWindowParameterized(u32 winId, u32 left, u32 top, u32 w
     winTemplate.fillValue = 0xF;
     winTemplate.glyphSize = glyphSize;
     winTemplate.vramCharBase = (void *) BG_VRAM + BG_CHAR_SIZE + (winTemplate.baseBlock * 32);
+
     if (glyphSize == 8)
     {
         winTemplate.glyphGfx = gFont1LatinGfx;
@@ -482,6 +508,7 @@ struct Window *CreateSomeWindowParameterized(u32 winId, u32 left, u32 top, u32 w
     SetTextColor(winCreated, 15, 1);
     ClearWindowCharBuffer(winCreated, 0);
     sSomeWindowBaseBlock += width * height;
+
     return winCreated;
 }
 
@@ -495,55 +522,65 @@ struct Window *CreatePartyMonHPWindow(u32 left, u32 top, u32 monId)
     ClearWindowCharBuffer(win, 0);
     hp = GetMonData(&gPlayerPartyPtr[monId], MON_DATA_HP, NULL);
     maxHp = GetMonData(&gPlayerPartyPtr[monId], MON_DATA_MAX_HP, NULL);
+    ConvertIntToDecimalString3CustomEncoding(hp, text, SMALL_CHAR_0);
 
-    NumToPmString3CustomZeroChar(hp, text, 0x76);
-    for (i = 0; text[i] == 0x76; i++)
+    for (i = 0; text[i] == SMALL_CHAR_0; i++)
         text[i] = CHAR_EXTRA_SYMBOL;
-    text[3] = 0x73;
-    if (hp == 0)
-        text[2] = 0x76;
 
-    NumToPmString3CustomZeroChar(maxHp, text + 4, 0x76);
-    for (i = 0; text[i + 4] == 0x76; i++)
+    text[3] = SMALL_CHAR_SLASH;
+
+    if (hp == 0)
+        text[2] = SMALL_CHAR_0;
+
+    ConvertIntToDecimalString3CustomEncoding(maxHp, text + 4, SMALL_CHAR_0);
+
+    for (i = 0; text[i + 4] == SMALL_CHAR_0; i++)
         text[i + 4] = CHAR_EXTRA_SYMBOL;
+
     if (maxHp == 0)
-        text[6] = 0x76;
+        text[6] = SMALL_CHAR_0;
 
     TextWindowSetXY(win, 4, 0);
     RenderText_NoPlaceholders(win, text);
+
     return win;
 }
 
-inline void SomeMonNameStrMagic(u8 *monName, u8 *sp32, u32 nameLen)
+// Prepends string with an equal length series of CHAR_EXTRA_SYMBOL and then CHAR_NEWLINE through a convoluted method
+inline void SomeMonNameStrMagic(u8 *monName, u8 *string, u32 nameLen)
 {
     u16 a;
     s32 i;
+
     if (monName[0] != EXT_CTRL_CODE_BEGIN)
     {
         for (i = 0; *monName != EOS; monName++, i++)
         {
-            a = gUnknown_0201F6B0[*monName];
-            sp32[i] = a >> 8;
-            sp32[nameLen + 1 + i] = a;
+            a = gWeirdStringModTable1[*monName];
+            string[i] = a >> 8;
+            string[nameLen + 1 + i] = a;
         }
-        sp32[nameLen] = CHAR_NEWLINE;
-        sp32[nameLen * 2 + 1] = EOS;
+
+        string[nameLen] = CHAR_NEWLINE;
+        string[nameLen * 2 + 1] = EOS;
     }
     else
     {
-        sp32[0] = monName[0];
+        string[0] = monName[0];
         monName++;
-        sp32[1] = monName[0];
+        string[1] = monName[0];
         monName++;
         nameLen -= 2;
+
         for (i = 2; *monName != EOS; monName++, i++)
         {
-            a = gUnknown_0201F4B0[*monName];
-            sp32[i] = a >> 8;
-            sp32[nameLen + 1 + i] = a;
+            a = gWeirdStringModTable2[*monName];
+            string[i] = a >> 8;
+            string[nameLen + 1 + i] = a;
         }
-        sp32[nameLen + 2] = CHAR_NEWLINE;
-        sp32[nameLen * 2 + 3] = EOS;
+
+        string[nameLen + 2] = CHAR_NEWLINE;
+        string[nameLen * 2 + 3] = EOS;
     }
 }
 
@@ -554,23 +591,27 @@ inline struct Window *PutMonLvlOnWindow(u32 x, u32 y, u32 monId)
     struct Window *win = CreateSomeWindowParameterized(1, x, y, 3, 1, 8);
     u32 lvl = GetMonData(&gPlayerPartyPtr[monId], MON_DATA_LEVEL, NULL);
 
-    text[0] = 0x60;
+    text[0] = SMALL_CHAR_LV;
     text[1] = EOS;
     TextWindowSetXY(win, 0, 0);
     RenderText(win, text);
-    NumToPmString3CustomZeroChar(lvl, text, 0x76);
-    for (i = 0; text[i] == 0x76; i++)
+    ConvertIntToDecimalString3CustomEncoding(lvl, text, SMALL_CHAR_0);
+
+    for (i = 0; text[i] == SMALL_CHAR_0; i++)
         ;
+
     if (text[i] == EOS)
         i--;
+
     RenderText_NoPlaceholders(win, &text[i]);
 
     return win;
 }
 
-inline void PutMonGenderOnBgTilemap(int x, int y, u32 monId)
+inline void PutMonGenderOnBgTilemap(u32 x, u32 y, u32 monId)
 {
     u16 tileNum;
+
     switch (GetMonGender(&gPlayerPartyPtr[monId]))
     {
     default:
@@ -583,45 +624,47 @@ inline void PutMonGenderOnBgTilemap(int x, int y, u32 monId)
         tileNum = 0x11;
         break;
     }
+
     SetBgTilemapBufferTileAt(0, x, y, tileNum);
 }
 
-inline void CopyMonIconToVram(struct UnkSpriteMonIconStruct *ptr, u32 a1)
+inline void CopyMonIconToVram(struct UnkSpriteMonIconStruct *ptr, u32 animFrame)
 {
-    CpuCopy16(&gAgbPmRomParams->monIcons[ptr->speciesIcon][a1 * 512], (void *)VRAM + 0x10000 + (ptr->unk8 * 32), 512);
+    CpuCopy16(&gAgbPmRomParams->monIcons[ptr->speciesIcon][animFrame * 512], (void *)VRAM + 0x10000 + (ptr->tileOffset * 32), 512);
 }
 
-inline void sub_2002E70(s32 a0)
+inline void sub_2002E70(s32 mode)
 {
-    switch (a0)
+    switch (mode)
     {
-    case 0:
+    case PARTY_MODE_BATTLE:
         CopyRectWithinBgTilemapBuffer(1, 0,   0x14, 6, 2, 0x18, 0x12);
         break;
-    case 2:
+    case PARTY_MODE_UNKNOWN:
         CopyRectWithinBgTilemapBuffer(1, 0xC, 0x14, 6, 2, 0x18, 0x10);
         CopyRectWithinBgTilemapBuffer(1, 0,   0x14, 6, 2, 0x18, 0x12);
         break;
-    case 1:
+    case PARTY_MODE_SELECT:
         CopyRectWithinBgTilemapBuffer(1, 0xC, 0x14, 6, 2, 0x18, 0x12);
         break;
     }
 }
 
-inline void sub_02002EE0(struct Window *win, struct UnkSpriteMonIconStruct *r9)
+inline void DrawSelectedNumberText(struct Window *win, struct UnkSpriteMonIconStruct *mon)
 {
-    u8 sp76[4];
+    u8 string[4];
 
     ClearWindowCharBuffer(win, 0);
-    if (r9->unk22 == 0)
+
+    if (mon->selectedId == 0)
     {
         RenderTextAt(win, 0, 2, gText_Space);
     }
     else
     {
-        sp76[0] = r9->unk22 + CHAR_0;
-        sp76[1] = EOS;
-        BufferString(0, sp76);
+        string[0] = mon->selectedId + CHAR_0;
+        string[1] = EOS;
+        BufferString(0, string);
         TextWindowSetXY(win, 0, 2);
         RenderText(win, gText_Number);
     }
@@ -630,9 +673,11 @@ inline void sub_02002EE0(struct Window *win, struct UnkSpriteMonIconStruct *r9)
 void CreateMonIcon(struct Sprite *sprite)
 {
     u32 r1;
+
     if (sprite->data[1] == 7 || sprite->data[1] == 20)
     {
         struct UnkSpriteMonIconStruct *ptr = (void *)sprite->data[0];
+
         if (ptr->statusPrimary != STATUS_PRIMARY_FAINTED)
         {
             sprite->data[1] = 0;
@@ -651,12 +696,14 @@ void CreateMonIcon(struct Sprite *sprite)
         r1 = sprite->data[2] & 1;
         CopyMonIconToVram(ptr, r1);
         SetSpritePos(sprite, ptr->unk1, ptr->unk2);
+
         if (gUnknown_02021860.selectedMon == ptr->monId)
         {
             if (gUnknown_02021860.unk121 == 4)
                 AddSpritePos(sprite, 0, -gUnknown_02021860.unk121);
             else
                 SetSpritePos(sprite, ptr->unk1, ptr->unk2);
+
             gUnknown_02021860.unk121 ^= 4;
         }
     }
@@ -675,23 +722,26 @@ void sub_02000BFC(void)
     for (i = 0; i < PARTY_SIZE; i++)
     {
         struct UnkSpriteMonIconStruct *ptr = &gUnknown_02021860.unk0[i];
-        if (ptr->unk22 == gUnknown_02021860.numMonsLeftToSelect)
+
+        if (ptr->selectedId == gUnknown_02021860.numMonsLeftToSelect)
         {
-            ptr->unk22 = 0;
+            ptr->selectedId = 0;
             win = ptr->win;
             ClearWindowCharBuffer(win, 0);
-            if (ptr->unk22 == 0)
+
+            if (ptr->selectedId == 0)
             {
                 RenderTextAt(win, 0, 2, gText_Space);
             }
             else
             {
-                text[0] = ptr->unk22 + CHAR_0;
+                text[0] = ptr->selectedId + CHAR_0;
                 text[1] = EOS;
                 BufferString(0, text);
                 TextWindowSetXY(win, 0, 2);
                 RenderText(win, gText_Number);
             }
+
             gUnknown_02021860.numMonsLeftToSelect--;
             gUnknown_02021860.selectedMon = i;
             break;
@@ -705,10 +755,11 @@ u32 sub_02000CA4(struct UnkSpriteMonIconStruct *a0, u32 monId, s32 x, s32 y)
     struct Sprite *sprite;
 
     a0->species = GetMonData(&gPlayerPartyPtr[monId], MON_DATA_SPECIES2, NULL);
+
     if (a0->species == SPECIES_NONE)
         return SPECIES_NONE;
 
-    a0->unk8 = (monId * 16) + 0xC0;
+    a0->tileOffset = (monId * 16) + 0xC0;
     a0->monId = monId;
     a0->unk1 = x;
     a0->unk2 = y;
@@ -718,9 +769,10 @@ u32 sub_02000CA4(struct UnkSpriteMonIconStruct *a0, u32 monId, s32 x, s32 y)
     sprite->data[0] = (uintptr_t)(a0);
     sprite->callback = CreateMonIcon;
     SetSpritePaletteNum(sprite, gAgbPmRomParams->monIconPaletteIds[a0->species]);
-    SetSpriteTileOffset(sprite, a0->unk8);
+    SetSpriteTileOffset(sprite, a0->tileOffset);
     CopyMonIconToVram(a0, 1);
     a0->monSprite = sprite;
+
     return a0->species;
 }
 
@@ -728,7 +780,7 @@ void sub_02000D74(struct Unk02021860Struct *a0, const struct Unk02000D74Struct *
 {
     s32 i;
     u8 monName[24];
-    u8 sp32[44];
+    u8 string[44];
     const struct Unk201F9B0Struct *r5 = &gUnknown_0201F9B0[coords->f2];
     struct UnkSpriteMonIconStruct *r9 = &a0->unk0[monId];
     u32 species = sub_02000CA4(r9, monId, coords->x * 8, (coords->y * 8) + 2);
@@ -742,6 +794,7 @@ void sub_02000D74(struct Unk02021860Struct *a0, const struct Unk02000D74Struct *
     {
         r9->statusPrimary = GetMonStatus(&gPlayerPartyPtr[monId]);
         CopyToBgTilemapBufferRect(3, coords->x, coords->y, r5->unk0, r5->unk1, (u16 *) (VRAM + 0x14000) + r5->unk2);
+
         if (r9->statusPrimary != STATUS_PRIMARY_FAINTED)
         {
             if (a0->selectedMon == monId)
@@ -757,13 +810,15 @@ void sub_02000D74(struct Unk02021860Struct *a0, const struct Unk02000D74Struct *
 
         r9->unk14 = CreateSomeWindowParameterized(1, coords->x + 4, coords->y + 1, gAgbPmRomParams->pokemonNameLength2, 2, 8);
         GetMonData(&gPlayerPartyPtr[monId], MON_DATA_NICKNAME, monName);
-        SomeMonNameStrMagic(monName, sp32, GetStringSizeHandleExtCtrlCodes(monName));
+        SomeMonNameStrMagic(monName, string, GetStringSizeHandleExtCtrlCodes(monName));
+
         if (GetMonData(&gPlayerPartyPtr[monId], MON_DATA_LANGUAGE, monName) != LANGUAGE_JAPANESE)
             r9->unk14->startX = 1;
         else
             r9->unk14->startX = 2;
+
         TextWindowSetXY(r9->unk14, r9->unk14->startX, 0);
-        RenderText_NoPlaceholders(r9->unk14, sp32);
+        RenderText_NoPlaceholders(r9->unk14, string);
 
         if (r9->statusPrimary == STATUS_PRIMARY_NONE || r9->statusPrimary == STATUS_PRIMARY_POKERUS)
         {
@@ -785,14 +840,15 @@ void sub_02000D74(struct Unk02021860Struct *a0, const struct Unk02000D74Struct *
         }
         else
         {
-            GetSpeciesName(sp32, species);
-            if (StringCompare(monName, sp32) != 0)
+            GetSpeciesName(string, species);
+
+            if (StringCompare(monName, string) != 0)
             {
                 PutMonGenderOnBgTilemap(coords->x + 9, coords->y + 3, monId);
             }
         }
 
-        if (gUnknown_02021860.unk118 == 0)
+        if (gUnknown_02021860.mode == PARTY_MODE_BATTLE)
         {
             r9->unk1C = CreatePartyMonHPWindow(coords->x + 5, coords->y + 5, monId);
             DrawPartyMonHealthBar(0, coords->x + 2, coords->y + 4, monId);
@@ -804,7 +860,7 @@ void sub_02000D74(struct Unk02021860Struct *a0, const struct Unk02000D74Struct *
             r9->unk20 = coords->x + 3;
             r9->unk21 = coords->y + 4;
             r9->win = CreateSomeWindowParameterized(monId + 5, r9->unk20, r9->unk21, 6, 2, 0x10);
-            sub_02002EE0(r9->win, r9);
+            DrawSelectedNumberText(r9->win, r9);
         }
 
         if (GetMonData(&gPlayerPartyPtr[monId], MON_DATA_HELD_ITEM, NULL) != ITEM_NONE)
@@ -812,6 +868,7 @@ void sub_02000D74(struct Unk02021860Struct *a0, const struct Unk02000D74Struct *
             r9->unk28 = AddSprite((coords->x * 8) + 24, (coords->y * 8) + 21, gUnknown_0201F958);
             SetSpritePaletteNum(r9->unk28, 12);
         }
+
         gUnknown_02021860.unk120 = monId;
     }
 }
@@ -820,7 +877,7 @@ void sub_02001258(struct Unk02021860Struct *a0, const struct Unk02000D74Struct *
 {
     s32 i;
     u8 monName[24];
-    u8 sp32[44];
+    u8 string[44];
     const struct Unk201F9B0Struct *r5 = &gUnknown_0201F9B0[coords->f2];
     struct UnkSpriteMonIconStruct *r9 = &a0->unk0[monId];
     u32 species = sub_02000CA4(r9, monId, (coords->x * 8) - 1, ((coords->y - 1) * 8) + 2);
@@ -834,6 +891,7 @@ void sub_02001258(struct Unk02021860Struct *a0, const struct Unk02000D74Struct *
     {
         r9->statusPrimary = GetMonStatus(&gPlayerPartyPtr[monId]);
         CopyToBgTilemapBufferRect(3, coords->x, coords->y, r5->unk0, r5->unk1, (u16 *) (VRAM + 0x14000) + r5->unk2);
+
         if (r9->statusPrimary != STATUS_PRIMARY_FAINTED)
         {
             if (a0->selectedMon == monId)
@@ -849,13 +907,15 @@ void sub_02001258(struct Unk02021860Struct *a0, const struct Unk02000D74Struct *
 
         r9->unk14 = CreateSomeWindowParameterized(1, coords->x + 3, coords->y, gAgbPmRomParams->pokemonNameLength2, 2, 8);
         GetMonData(&gPlayerPartyPtr[monId], MON_DATA_NICKNAME, monName);
-        SomeMonNameStrMagic(monName, sp32, GetStringSizeHandleExtCtrlCodes(monName));
+        SomeMonNameStrMagic(monName, string, GetStringSizeHandleExtCtrlCodes(monName));
+
         if (GetMonData(&gPlayerPartyPtr[monId], MON_DATA_LANGUAGE, monName) != LANGUAGE_JAPANESE)
             r9->unk14->startX = 6;
         else
             r9->unk14->startX = 8;
+
         TextWindowSetXY(r9->unk14, r9->unk14->startX, 0);
-        RenderText_NoPlaceholders(r9->unk14, sp32);
+        RenderText_NoPlaceholders(r9->unk14, string);
 
         if (r9->statusPrimary == STATUS_PRIMARY_NONE || r9->statusPrimary == STATUS_PRIMARY_POKERUS)
         {
@@ -876,14 +936,15 @@ void sub_02001258(struct Unk02021860Struct *a0, const struct Unk02000D74Struct *
         }
         else
         {
-            GetSpeciesName(sp32, species);
-            if (StringCompare(monName, sp32) != 0)
+            GetSpeciesName(string, species);
+
+            if (StringCompare(monName, string) != 0)
             {
                 PutMonGenderOnBgTilemap(coords->x + 9, coords->y + 2, monId);
             }
         }
 
-        if (gUnknown_02021860.unk118 == 0)
+        if (gUnknown_02021860.mode == PARTY_MODE_BATTLE)
         {
             r9->unk1C = CreatePartyMonHPWindow(coords->x + 13, coords->y + 2, monId);
             DrawPartyMonHealthBar(0, coords->x + 10, coords->y + 1, monId);
@@ -895,7 +956,7 @@ void sub_02001258(struct Unk02021860Struct *a0, const struct Unk02000D74Struct *
             r9->unk20 = coords->x + 11;
             r9->unk21 = coords->y;
             r9->win = CreateSomeWindowParameterized(monId + 5, r9->unk20, r9->unk21, 6, 2, 0x10);
-            sub_02002EE0(r9->win, r9);
+            DrawSelectedNumberText(r9->win, r9);
         }
 
         if (GetMonData(&gPlayerPartyPtr[monId], MON_DATA_HELD_ITEM, NULL) != ITEM_NONE)
@@ -903,6 +964,7 @@ void sub_02001258(struct Unk02021860Struct *a0, const struct Unk02000D74Struct *
             r9->unk28 = AddSprite((coords->x * 8) + 24, (coords->y * 8) + 15, gUnknown_0201F958);
             SetSpritePaletteNum(r9->unk28, 12);
         }
+
         gUnknown_02021860.unk120 = monId;
         gBgTilemapBufferTransferScheduled[0] = TRUE;
     }
@@ -911,11 +973,13 @@ void sub_02001258(struct Unk02021860Struct *a0, const struct Unk02000D74Struct *
 void sub_02001738(u32 selectMonsTextId)
 {
     u8 text[8];
+
     DrawTextWindowBorder(0, 0x10, 0x18, 4, 0xE001);
     gBgTilemapBufferTransferScheduled[2] = TRUE;
     gUnknown_02021860.unk108 = AddWindow(0, &gUnknown_0201F8B0);
     SetTextColor(gUnknown_02021860.unk108, 1, 8);
     ClearWindowCharBuffer(gUnknown_02021860.unk108, 0xFFFF);
+
     if (gUnknown_02021860.numMonsToSelect != 0)
     {
         switch (selectMonsTextId)
@@ -958,15 +1022,17 @@ void sub_020017E8(struct Unk02021860Struct *a0)
     AutoUnCompVram(gPartyMenu_Tilemap, (void *) IWRAM_START + 0x1000);
     AutoUnCompVram(gTypeStatusIcons_Pal, (void *) PLTT + 0x200);
     AutoUnCompVram(gTypeStatusIcons_Gfx, (void *) VRAM + 0x10000);
-    sub_2002E70(gUnknown_02021860.unk118);
+    sub_2002E70(gUnknown_02021860.mode);
     gBgTilemapBufferTransferScheduled[1] = TRUE;
     monIconPalettes = gAgbPmRomParams->monIconPalettes;
     DmaCopy16(3, monIconPalettes[0].data, (void *) PLTT + 0x200, 0x60);
     AutoUnCompVram(gPartySlots_Tilemap, (void *) VRAM + 0x14000);
+
     if (a0->unk11A == 0)
         coords = gUnknown_0201F9BC;
     else
         coords = gUnknown_0201F9D4;
+
     for (i = 0; i < PARTY_SIZE; i++, coords++)
     {
         if (coords->f2 == 0)
@@ -974,6 +1040,7 @@ void sub_020017E8(struct Unk02021860Struct *a0)
         else
             sub_02001258(a0, coords, i);
     }
+
     gBgTilemapBufferTransferScheduled[0] = TRUE;
     gBgTilemapBufferTransferScheduled[3] = TRUE;
     sub_02001738(0);
@@ -988,6 +1055,7 @@ void sub_020019B4(u32 monId, u32 stringId)
         MoveSpriteToHead(gUnknown_02021860.unk114);
         gUnknown_02021860.unk114 = NULL;
     }
+
     FillBgTilemapBufferRect(2, 0, 12, 30, 8, 0);
     DrawTextWindowBorder(3, 14, 24, 6, 0xE001);
     gUnknown_02021860.unk110 = AddWindow(0, &gUnknown_0201F8F0);
@@ -1013,6 +1081,7 @@ s32 sub_02001A8C(u32 monId)
     {
         if (!r9)
             break;
+
         switch (i)
         {
         case 0:
@@ -1028,10 +1097,12 @@ s32 sub_02001A8C(u32 monId)
             SetTextColor(gUnknown_02021860.unk10C, 1, 8);
             TextWindowFillTileBufferForText(gUnknown_02021860.unk10C);
             ClearWindowCharBuffer(gUnknown_02021860.unk10C, 0xFFFF);
+
             if (gUnknown_02021860.unk125 == 0)
                 RenderTextAt(gUnknown_02021860.unk10C, 0, 0, gText_Switch);
             else
                 RenderTextAt(gUnknown_02021860.unk10C, 0, 0, gText_SendOut);
+
             RenderTextAt(gUnknown_02021860.unk10C, 0, 16, gText_Summary);
             RenderTextAt(gUnknown_02021860.unk10C, 0, 32, gText_Cancel);
             gUnknown_02021860.unk114 = AddSprite(0, 0, gUnknown_0201F910);
@@ -1039,15 +1110,19 @@ s32 sub_02001A8C(u32 monId)
             gUnknown_02021860.unk119 = 0;
             SetSpritePos(gUnknown_02021860.unk114, 168, 104);
             gBgTilemapBufferTransferScheduled[2] = TRUE;
+
             if (IsScreenFadedOut())
                 FadeIn();
+
             i = 1;
             break;
         case 1:
             DelayFrames(1);
             keys = gNewKeys;
+
             if (keys & B_BUTTON)
                 i = 2;
+
             if (keys & A_BUTTON)
             {
                 if (gUnknown_02021860.unk119 == 0)
@@ -1060,37 +1135,45 @@ s32 sub_02001A8C(u32 monId)
             else
             {
                 keys = gNewAndRepeatedKeys;
+
                 if (keys & DPAD_DOWN)
                 {
                     if (gUnknown_02021860.unk119 != 2)
                         gUnknown_02021860.unk119++;
                     else
                         gUnknown_02021860.unk119 = 0;
+
                     PlaySE(SONG_SE_SELECT);
                 }
+
                 if (keys & DPAD_UP)
                 {
                     if (gUnknown_02021860.unk119 != 0)
                         gUnknown_02021860.unk119--;
                     else
                         gUnknown_02021860.unk119 = 2;
+
                     PlaySE(SONG_SE_SELECT);
                 }
+
                 SetSpritePos(gUnknown_02021860.unk114, 168, 104 + (gUnknown_02021860.unk119 * 16));
             }
             break;
         case 2:
             PlaySE(SONG_SE_SELECT);
+
             if (gUnknown_02021860.unk114 != NULL)
             {
                 MoveSpriteToHead(gUnknown_02021860.unk114);
                 gUnknown_02021860.unk114 = NULL;
             }
+
             FillBgTilemapBufferRect(2, 20, 12, 10, 8, 0);
             sub_02001738(0);
             return 0;
         case 3:
             var = sub_020063FC();
+
             if ((var & 0xFFFF) == 1)
             {
                 PlaySE(SONG_SE_FAILURE);
@@ -1163,6 +1246,7 @@ s32 sub_02001A8C(u32 monId)
             FadeOut();
             gUnknown_02021860.selectedMon = sub_020044F0(gUnknown_02021860.selectedMon);
             monId = gUnknown_02021860.selectedMon;
+
             if (gUnknown_02021860.unk11A == 1)
             {
                 if (gUnknown_02021860.selectedMon == 0)
@@ -1170,11 +1254,13 @@ s32 sub_02001A8C(u32 monId)
                 else if (gUnknown_02021860.selectedMon == 1)
                     gUnknown_02021860.unk11E = 4;
             }
+
             sub_020017E8(&gUnknown_02021860);
             i = 0;
             break;
         }
     }
+
     return 0;
 }
 
@@ -1191,6 +1277,7 @@ s32 sub_02001F04(s32 ret)
     {
         if (!r3)
             break;
+
         switch (i)
         {
         case 0:
@@ -1206,10 +1293,12 @@ s32 sub_02001F04(s32 ret)
             SetTextColor(gUnknown_02021860.unk10C, 1, 8);
             TextWindowFillTileBufferForText(gUnknown_02021860.unk10C);
             ClearWindowCharBuffer(gUnknown_02021860.unk10C, 0xFFFF);
-            if (var_24->unk22 == 0)
+
+            if (var_24->selectedId == 0)
                 RenderTextAt(gUnknown_02021860.unk10C, 0, 0, gText_Select);
             else
                 RenderTextAt(gUnknown_02021860.unk10C, 0, 0, gText_Deselect);
+
             RenderTextAt(gUnknown_02021860.unk10C, 0, 16, gText_Summary);
             RenderTextAt(gUnknown_02021860.unk10C, 0, 32, gText_Cancel);
             gUnknown_02021860.unk114 = AddSprite(0, 0, gUnknown_0201F910);
@@ -1217,17 +1306,21 @@ s32 sub_02001F04(s32 ret)
             gUnknown_02021860.unk119 = 0;
             SetSpritePos(gUnknown_02021860.unk114, 168, 104);
             gBgTilemapBufferTransferScheduled[2] = TRUE;
+
             if (IsScreenFadedOut())
                 FadeIn();
             else
                 PlaySE(SONG_SE_SELECT);
+
             i = 1;
             break;
         case 1:
             DelayFrames(1);
             keys = gNewAndRepeatedKeys;
+
             if (keys & B_BUTTON)
                 i = 2;
+
             if (keys & A_BUTTON)
             {
                 if (gUnknown_02021860.unk119 == 0)
@@ -1263,16 +1356,18 @@ s32 sub_02001F04(s32 ret)
             break;
         case 2:
             PlaySE(SONG_SE_SELECT);
+
             if (gUnknown_02021860.unk114 != NULL)
             {
                 MoveSpriteToHead(gUnknown_02021860.unk114);
                 gUnknown_02021860.unk114 = NULL;
             }
+
             FillBgTilemapBufferRect(2, 20, 12, 10, 8, 0);
             sub_02001738(0);
             return ret;
         case 3:
-            if (var_24->unk22 == 0)
+            if (var_24->selectedId == 0)
             {
                 if (gUnknown_02021860.numMonsLeftToSelect == gUnknown_02021860.numMonsToSelect)
                 {
@@ -1282,11 +1377,13 @@ s32 sub_02001F04(s32 ret)
                 else
                 {
                     PlaySE(SONG_SE_SELECT);
-                    var_24->unk22 = ++gUnknown_02021860.numMonsLeftToSelect;
-                    sub_02002EE0(var_24->win, var_24);
+                    var_24->selectedId = ++gUnknown_02021860.numMonsLeftToSelect;
+                    DrawSelectedNumberText(var_24->win, var_24);
                     REG_JOY_TRANS = 0x1000000;
+
                     if (gUnknown_02021860.numMonsLeftToSelect == gUnknown_02021860.numMonsToSelect)
                         gUnknown_02021860.selectedMon = 6;
+
                     i = 2;
                 }
             }
@@ -1294,14 +1391,15 @@ s32 sub_02001F04(s32 ret)
             {
                 for (j = 0; j < 6; j++)
                 {
-                    if (gUnknown_02021860.unk0[j].unk22 > var_24->unk22)
+                    if (gUnknown_02021860.unk0[j].selectedId > var_24->selectedId)
                     {
-                        gUnknown_02021860.unk0[j].unk22--;
-                        sub_02002EE0(gUnknown_02021860.unk0[j].win, &gUnknown_02021860.unk0[j]);
+                        gUnknown_02021860.unk0[j].selectedId--;
+                        DrawSelectedNumberText(gUnknown_02021860.unk0[j].win, &gUnknown_02021860.unk0[j]);
                     }
                 }
-                var_24->unk22 = 0;
-                sub_02002EE0(var_24->win, var_24);
+
+                var_24->selectedId = 0;
+                DrawSelectedNumberText(var_24->win, var_24);
                 REG_JOY_TRANS = 0xFF000000;
                 gUnknown_02021860.numMonsLeftToSelect--;
                 i = 2;
@@ -1311,6 +1409,7 @@ s32 sub_02001F04(s32 ret)
             PlaySE(SONG_SE_SELECT);
             FadeOut();
             gUnknown_02021860.selectedMon = sub_020044F0(gUnknown_02021860.selectedMon);
+
             if (gUnknown_02021860.unk11A == 1)
             {
                 if (gUnknown_02021860.selectedMon == 0)
@@ -1318,6 +1417,7 @@ s32 sub_02001F04(s32 ret)
                 else if (gUnknown_02021860.selectedMon == 1)
                     gUnknown_02021860.unk11E = 4;
             }
+
             sub_020017E8(&gUnknown_02021860);
             ret = gUnknown_02021860.selectedMon;
             var_24 = &gUnknown_02021860.unk0[ret];
@@ -1342,6 +1442,7 @@ s32 sub_020023E8(void)
     {
         DelayFrames(1);
         keys = gNewAndRepeatedKeys;
+
         if (keys == 0)
             continue;
 
@@ -1358,6 +1459,7 @@ s32 sub_020023E8(void)
                 continue;
             }
         }
+
         if (keys & A_BUTTON)
         {
             if (gUnknown_02021860.selectedMon == PARTY_SIZE)
@@ -1385,46 +1487,57 @@ s32 sub_020023E8(void)
         }
 
         monId = gUnknown_02021860.selectedMon;
+
         if (keys & DPAD_UP)
         {
             PlaySE(SONG_SE_SELECT);
+
             if (gUnknown_02021860.selectedMon == 0)
                 gUnknown_02021860.selectedMon = PARTY_SIZE;
             else if (gUnknown_02021860.selectedMon == PARTY_SIZE)
                 gUnknown_02021860.selectedMon = gUnknown_02021860.unk120;
             else
                 gUnknown_02021860.selectedMon--;
+
             gUnknown_02021860.unk11E = r9[gUnknown_02021860.selectedMon].a2;
         }
+
         if (keys & DPAD_DOWN)
         {
             PlaySE(SONG_SE_SELECT);
+
             if (gUnknown_02021860.selectedMon == gUnknown_02021860.unk120)
                 gUnknown_02021860.selectedMon = PARTY_SIZE;
             else if (gUnknown_02021860.selectedMon == PARTY_SIZE)
                 gUnknown_02021860.selectedMon = 0;
             else
                 gUnknown_02021860.selectedMon++;
+
             gUnknown_02021860.unk11E = r9[gUnknown_02021860.selectedMon].a2;
         }
+
         if (keys & DPAD_LEFT)
         {
             PlaySE(SONG_SE_SELECT);
+
             if (r9[gUnknown_02021860.selectedMon].a1 != 0xFF)
             {
                 gUnknown_02021860.unk11E = gUnknown_02021860.selectedMon;
                 gUnknown_02021860.selectedMon = r9[gUnknown_02021860.selectedMon].a1;
             }
         }
+
         if (keys & DPAD_RIGHT)
         {
             PlaySE(SONG_SE_SELECT);
+
             switch (r9[gUnknown_02021860.selectedMon].a0)
             {
             case 0xFF:
                 break;
             case 7:
                 gUnknown_02021860.selectedMon = gUnknown_02021860.unk11E;
+
                 if (gUnknown_02021860.selectedMon > gUnknown_02021860.unk120)
                 {
                     gUnknown_02021860.selectedMon = gUnknown_02021860.unk120;
@@ -1445,6 +1558,7 @@ s32 sub_020023E8(void)
         {
             r4 = &var_24[monId];
             r5 = &gUnknown_0201F9B0[r4->a2];
+
             if (GetMonStatus(&gPlayerPartyPtr[monId]) != STATUS_PRIMARY_FAINTED)
                 SetBgTilemapBufferPaletteRect(3, r4->a0, r4->a1, r5->unk0, r5->unk1, 3);
             else
@@ -1459,6 +1573,7 @@ s32 sub_020023E8(void)
         {
             r4 = &var_24[gUnknown_02021860.selectedMon];
             r5 = &gUnknown_0201F9B0[r4->a2];
+
             if (GetMonStatus(&gPlayerPartyPtr[gUnknown_02021860.selectedMon]) != STATUS_PRIMARY_FAINTED)
                 SetBgTilemapBufferPaletteRect(3, r4->a0, r4->a1, r5->unk0, r5->unk1, 7);
             else
@@ -1467,6 +1582,7 @@ s32 sub_020023E8(void)
         else
         {
             SetBgTilemapBufferPaletteRect(1, 24, 18, 6, 2, 2);
+
             if (gUnknown_02021860.unk11A == 0)
                 gUnknown_02021860.unk11E = 1;
             else
@@ -1476,17 +1592,20 @@ s32 sub_020023E8(void)
         gBgTilemapBufferTransferScheduled[3] = TRUE;
         gBgTilemapBufferTransferScheduled[1] = TRUE;
     }
+
     return 1;
 }
 
 inline s32 sub_02002F38(u32 val)
 {
     s32 i;
+
     for (i = 0; i < PARTY_SIZE; i++)
     {
-        if (gUnknown_02021860.unk0[i].unk22 == val)
+        if (gUnknown_02021860.unk0[i].selectedId == val)
             return i;
     }
+
     return -1;
 }
 
@@ -1499,10 +1618,13 @@ inline void sub_02002F60(void)
     for (i = 1; i < gUnknown_02021860.numMonsLeftToSelect + 1; i++)
     {
         s32 ret = sub_02002F38(i);
+
         if (ret != -1)
             bits |= (ret << r6);
+
         r6 += 4;
     }
+
     gMonLinkData.unk_880 = bits;
     gMonLinkData.unk_87F = 1;
 }
@@ -1520,10 +1642,12 @@ s32 sub_020026F4(void)
     {
         DelayFrames(1);
         keys = gNewAndRepeatedKeys;
+
         if (keys == 0)
             continue;
 
         monId = gUnknown_02021860.selectedMon;
+
         if (keys & B_BUTTON)
         {
             if (gUnknown_02021860.numMonsLeftToSelect != 0)
@@ -1538,6 +1662,7 @@ s32 sub_020026F4(void)
                 PlaySE(SONG_SE_FAILURE);
             }
         }
+
         if (keys & A_BUTTON)
         {
             if (gUnknown_02021860.selectedMon == PARTY_SIZE)
@@ -1557,6 +1682,7 @@ s32 sub_020026F4(void)
             else
             {
                 s32 var = sub_02001F04(gUnknown_02021860.selectedMon);
+
                 if (var == -1)
                     return -1;
                 else if (var != monId)
@@ -1567,46 +1693,57 @@ s32 sub_020026F4(void)
         if (keys & DPAD_UP)
         {
             PlaySE(SONG_SE_SELECT);
+
             if (gUnknown_02021860.selectedMon == 0)
                 gUnknown_02021860.selectedMon = PARTY_SIZE;
             else if (gUnknown_02021860.selectedMon == PARTY_SIZE)
                 gUnknown_02021860.selectedMon = gUnknown_02021860.unk120;
             else
                 gUnknown_02021860.selectedMon--;
+
             gUnknown_02021860.unk11E = r9[gUnknown_02021860.selectedMon].a2;
         }
+
         if (keys & DPAD_DOWN)
         {
             PlaySE(SONG_SE_SELECT);
+
             if (gUnknown_02021860.selectedMon == gUnknown_02021860.unk120)
                 gUnknown_02021860.selectedMon = PARTY_SIZE;
             else if (gUnknown_02021860.selectedMon == PARTY_SIZE)
                 gUnknown_02021860.selectedMon = 0;
             else
                 gUnknown_02021860.selectedMon++;
+
             gUnknown_02021860.unk11E = r9[gUnknown_02021860.selectedMon].a2;
         }
+
         if (keys & DPAD_LEFT)
         {
             PlaySE(SONG_SE_SELECT);
+
             if (r9[gUnknown_02021860.selectedMon].a1 != 0xFF)
             {
                 gUnknown_02021860.unk11E = gUnknown_02021860.selectedMon;
                 gUnknown_02021860.selectedMon = r9[gUnknown_02021860.selectedMon].a1;
             }
         }
+
         if (keys & DPAD_RIGHT)
         {
             PlaySE(SONG_SE_SELECT);
+
             switch (r9[gUnknown_02021860.selectedMon].a0)
             {
             case 0xFF:
                 break;
             case 7:
                 gUnknown_02021860.selectedMon = gUnknown_02021860.unk11E;
+
                 if (gUnknown_02021860.selectedMon > gUnknown_02021860.unk120)
                 {
                     gUnknown_02021860.selectedMon = gUnknown_02021860.unk120;
+
                     if (gUnknown_02021860.unk11A == 1 && gUnknown_02021860.selectedMon == 1 && monId == 0)
                         gUnknown_02021860.selectedMon = monId;
                 }
@@ -1624,6 +1761,7 @@ s32 sub_020026F4(void)
         {
             r4 = &var_24[monId];
             r5 = &gUnknown_0201F9B0[r4->a2];
+
             if (GetMonStatus(&gPlayerPartyPtr[monId]) != STATUS_PRIMARY_FAINTED)
                 SetBgTilemapBufferPaletteRect(3, r4->a0, r4->a1, r5->unk0, r5->unk1, 3);
             else
@@ -1638,6 +1776,7 @@ s32 sub_020026F4(void)
         {
             r4 = &var_24[gUnknown_02021860.selectedMon];
             r5 = &gUnknown_0201F9B0[r4->a2];
+
             if (GetMonStatus(&gPlayerPartyPtr[gUnknown_02021860.selectedMon]) != STATUS_PRIMARY_FAINTED)
                 SetBgTilemapBufferPaletteRect(3, r4->a0, r4->a1, r5->unk0, r5->unk1, 7);
             else
@@ -1646,6 +1785,7 @@ s32 sub_020026F4(void)
         else
         {
             SetBgTilemapBufferPaletteRect(1, 24, 18, 6, 2, 2);
+
             if (gUnknown_02021860.unk11A == 0)
                 gUnknown_02021860.unk11E = 1;
             else
@@ -1655,6 +1795,7 @@ s32 sub_020026F4(void)
         gBgTilemapBufferTransferScheduled[3] = TRUE;
         gBgTilemapBufferTransferScheduled[1] = TRUE;
     }
+
     return 1;
 }
 
@@ -1684,7 +1825,7 @@ void sub_02002A9C(s32 a0, u32 a1, u32 a2)
     switch (a0)
     {
     case 0:
-        gUnknown_02021860.unk118 = 0;
+        gUnknown_02021860.mode = PARTY_MODE_BATTLE;
         gUnknown_02021860.numMonsToSelect = 0;
         sub_020017E8(&gUnknown_02021860);
         FadeIn();
@@ -1692,18 +1833,22 @@ void sub_02002A9C(s32 a0, u32 a1, u32 a2)
         FadeOut();
         break;
     case 1:
-        gUnknown_02021860.unk118 = 1;
+        gUnknown_02021860.mode = PARTY_MODE_SELECT;
         gUnknown_02021860.numMonsToSelect = gMonLinkData.numMonsToSelect;
+
         if (gUnknown_02021860.numMonsToSelect == 0 || gUnknown_02021860.numMonsToSelect > *gPlayerPartyCountPtr)
             gUnknown_02021860.numMonsToSelect = *gPlayerPartyCountPtr;
+
         gUnknown_02021860.numMonsLeftToSelect = 0;
+
         for (i = 0; i < PARTY_SIZE; i++)
         {
-            gUnknown_02021860.unk0[i].unk22 = 0;
+            gUnknown_02021860.unk0[i].selectedId = 0;
             maxHp = GetMonData(&gPlayerPartyPtr[i], MON_DATA_MAX_HP, NULL);
             SetMonData(&gPlayerPartyPtr[i], MON_DATA_HP, &maxHp);
             status = 0;
             SetMonData(&gPlayerPartyPtr[i], MON_DATA_STATUS, &status);
+
             for (j = 0; j < 4; j++)
             {
                 u16 move = GetBoxMonMoveBySlot(&gPlayerPartyPtr[i].box, j);
@@ -1712,6 +1857,7 @@ void sub_02002A9C(s32 a0, u32 a1, u32 a2)
                 SetMonData(&gPlayerPartyPtr[i], MON_DATA_PP1 + j, &pp);
             }
         }
+
         sub_020017E8(&gUnknown_02021860);
         FadeIn();
         sub_020026F4();
@@ -1926,6 +2072,7 @@ void sub_02002C44(void)
 void sub_02002C80(void)
 {
     gUnknown_02021860.selectedMon = 0;
+
     if (gUnknown_02021860.unk11A == 0)
         gUnknown_02021860.unk11E = 1;
     else
